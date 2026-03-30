@@ -23,7 +23,7 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
-	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta2"
+	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta1"
 	azhciauth "github.com/microsoft/cluster-api-provider-azurestackhci/pkg/auth"
 	"github.com/microsoft/moc/pkg/auth"
 	"github.com/microsoft/moc/pkg/diagnostics"
@@ -31,7 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2/klogr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -175,9 +176,18 @@ func (s *ClusterScope) ListOptionsLabelSelector() client.ListOption {
 
 // PatchObject persists the cluster configuration and status.
 func (s *ClusterScope) PatchObject() error {
+	conditions.SetSummary(s.AzureStackHCICluster,
+		conditions.WithConditions(
+			infrav1.NetworkInfrastructureReadyCondition,
+		),
+		conditions.WithStepCounterIfOnly(
+			infrav1.NetworkInfrastructureReadyCondition,
+		),
+	)
+
 	return s.patchHelper.Patch(s.Context,
 		s.AzureStackHCICluster,
-		patch.WithOwnedConditions{Conditions: []string{
+		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
 			clusterv1.ReadyCondition,
 			infrav1.NetworkInfrastructureReadyCondition,
 		}})
@@ -190,10 +200,10 @@ func (s *ClusterScope) Close() error {
 
 // APIServerPort returns the APIServerPort to use when creating the load balancer.
 func (s *ClusterScope) APIServerPort() int32 {
-	if s.Cluster == nil || s.Cluster.Spec.ClusterNetwork.APIServerPort == 0 {
-		return 6443
+	if s.Cluster.Spec.ClusterNetwork != nil && s.Cluster.Spec.ClusterNetwork.APIServerPort != nil {
+		return *s.Cluster.Spec.ClusterNetwork.APIServerPort
 	}
-	return s.Cluster.Spec.ClusterNetwork.APIServerPort
+	return 6443
 }
 
 func (s *ClusterScope) AzureStackHCILoadBalancer() *infrav1.AzureStackHCILoadBalancerSpec {

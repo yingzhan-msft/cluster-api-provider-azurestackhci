@@ -26,9 +26,9 @@ import (
 	"os"
 	"time"
 
-	// +kubebuilder:scaffold:imports
 	infrav1beta1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta1"
-	infrav1beta2 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta2"
+
+	// +kubebuilder:scaffold:imports
 	"github.com/microsoft/cluster-api-provider-azurestackhci/controllers"
 	"github.com/microsoft/cluster-api-provider-azurestackhci/pkg/network"
 	"github.com/spf13/pflag"
@@ -252,27 +252,27 @@ func main() {
 
 	// +kubebuilder:scaffold:builder
 
-	if err := (&infrav1beta2.AzureStackHCICluster{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta1.AzureStackHCICluster{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "AzureStackHCICluster")
 		os.Exit(1)
 	}
 
-	if err := (&infrav1beta2.AzureStackHCIMachine{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta1.AzureStackHCIMachine{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "AzureStackHCIMachine")
 		os.Exit(1)
 	}
 
-	if err := (&infrav1beta2.AzureStackHCIMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta1.AzureStackHCIMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "AzureStackHCIMachineTemplate")
 		os.Exit(1)
 	}
 
-	if err := (&infrav1beta2.AzureStackHCIVirtualMachine{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta1.AzureStackHCIVirtualMachine{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "AzureStackHCIVirtualMachine")
 		os.Exit(1)
 	}
 
-	if err := (&infrav1beta2.AzureStackHCILoadBalancer{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta1.AzureStackHCILoadBalancer{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "AzureStackHCILoadBalancer")
 		os.Exit(1)
 	}

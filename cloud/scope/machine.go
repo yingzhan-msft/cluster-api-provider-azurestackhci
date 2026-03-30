@@ -22,15 +22,16 @@ import (
 	"encoding/base64"
 
 	"github.com/go-logr/logr"
-	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta2"
+	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2/klogr"
 	"k8s.io/utils/pointer"
-	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -44,7 +45,6 @@ type MachineScopeParams struct {
 	Machine              *clusterv1.Machine
 	AzureStackHCICluster *infrav1.AzureStackHCICluster
 	AzureStackHCIMachine *infrav1.AzureStackHCIMachine
-	Context              context.Context
 }
 
 // NewMachineScope creates a new MachineScope from the supplied parameters.
@@ -75,10 +75,6 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to init patch helper")
 	}
-	if params.Context == nil {
-		params.Context = context.Background()
-	}
-
 	return &MachineScope{
 		client:               params.Client,
 		Cluster:              params.Cluster,
@@ -87,7 +83,6 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 		AzureStackHCIMachine: params.AzureStackHCIMachine,
 		Logger:               *params.Logger,
 		patchHelper:          helper,
-		Context:              params.Context,
 	}, nil
 }
 
@@ -101,7 +96,6 @@ type MachineScope struct {
 	Machine              *clusterv1.Machine
 	AzureStackHCICluster *infrav1.AzureStackHCICluster
 	AzureStackHCIMachine *infrav1.AzureStackHCIMachine
-	Context              context.Context
 }
 
 // Location returns the AzureStackHCIMachine location.
@@ -111,9 +105,6 @@ func (m *MachineScope) Location() string {
 
 // AvailabilityZone returns the AzureStackHCIMachine Availability Zone.
 func (m *MachineScope) AvailabilityZone() string {
-	if m.AzureStackHCIMachine.Spec.AvailabilityZone == nil || m.AzureStackHCIMachine.Spec.AvailabilityZone.ID == nil {
-		return ""
-	}
 	return *m.AzureStackHCIMachine.Spec.AvailabilityZone.ID
 }
 
@@ -160,7 +151,7 @@ func (m *MachineScope) GetProviderID() string {
 
 // SetProviderID sets the AzureStackHCIMachine providerID in spec.
 func (m *MachineScope) SetProviderID(v string) {
-	m.AzureStackHCIMachine.Spec.ProviderID = ptr.To(v)
+	m.AzureStackHCIMachine.Spec.ProviderID = pointer.StringPtr(v)
 }
 
 // GetVMState returns the AzureStackHCIMachine VM state.
@@ -177,15 +168,16 @@ func (m *MachineScope) SetVMState(v *infrav1.VMState) {
 // SetReady sets the AzureStackHCIMachine Ready Status
 func (m *MachineScope) SetReady() {
 	m.AzureStackHCIMachine.Status.Ready = true
-	if m.AzureStackHCIMachine.Status.Initialization == nil {
-		m.AzureStackHCIMachine.Status.Initialization = &infrav1.AzureStackHCIMachineInitializationStatus{}
-	}
-	if m.AzureStackHCIMachine.Status.Initialization.Provisioned == nil {
-		trueVal := true
-		m.AzureStackHCIMachine.Status.Initialization.Provisioned = &trueVal
-	} else {
-		*m.AzureStackHCIMachine.Status.Initialization.Provisioned = true
-	}
+}
+
+// SetFailureMessage sets the AzureStackHCIMachine status failure message.
+func (m *MachineScope) SetFailureMessage(v error) {
+	m.AzureStackHCIMachine.Status.FailureMessage = pointer.StringPtr(v.Error())
+}
+
+// SetFailureReason sets the AzureStackHCIMachine status failure reason.
+func (m *MachineScope) SetFailureReason(v capierrors.MachineStatusError) {
+	m.AzureStackHCIMachine.Status.FailureReason = &v
 }
 
 // SetAnnotation sets a key value annotation on the AzureStackHCIMachine.
@@ -198,10 +190,19 @@ func (m *MachineScope) SetAnnotation(key, value string) {
 
 // PatchObject persists the machine spec and status.
 func (m *MachineScope) PatchObject() error {
+	conditions.SetSummary(m.AzureStackHCIMachine,
+		conditions.WithConditions(
+			infrav1.VMRunningCondition,
+		),
+		conditions.WithStepCounterIfOnly(
+			infrav1.VMRunningCondition,
+		),
+	)
+
 	return m.patchHelper.Patch(
-		m.Context,
+		context.TODO(),
 		m.AzureStackHCIMachine,
-		patch.WithOwnedConditions{Conditions: []string{
+		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
 			clusterv1.ReadyCondition,
 			infrav1.VMRunningCondition,
 		}})

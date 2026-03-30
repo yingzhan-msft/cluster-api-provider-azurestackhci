@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta2"
+	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta1"
 	azurestackhci "github.com/microsoft/cluster-api-provider-azurestackhci/cloud"
 	"github.com/microsoft/cluster-api-provider-azurestackhci/cloud/scope"
 	"github.com/microsoft/cluster-api-provider-azurestackhci/cloud/services/loadbalancers"
@@ -33,8 +33,8 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -188,12 +188,7 @@ func (r *AzureStackHCILoadBalancerReconciler) reconcileNormal(lbs *scope.LoadBal
 	result, err := r.reconcileVirtualMachines(lbs, clusterScope)
 	if err != nil {
 		r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeWarning, "FailureReconcileLBMachines", errors.Wrapf(err, "Failed to reconcile LoadBalancer machines").Error())
-		conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-			Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.LoadBalancerMachineReconciliationFailedReason,
-			Message: err.Error(),
-		})
+		conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.LoadBalancerMachineReconciliationFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return reconcile.Result{}, err
 	}
 
@@ -202,26 +197,11 @@ func (r *AzureStackHCILoadBalancerReconciler) reconcileNormal(lbs *scope.LoadBal
 	if err != nil {
 		switch mocerrors.GetErrorCode(err) {
 		case mocerrors.OutOfMemory.Error():
-			conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-				Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.OutOfMemoryReason,
-				Message: err.Error(),
-			})
+			conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.OutOfMemoryReason, clusterv1.ConditionSeverityError, err.Error())
 		case mocerrors.OutOfCapacity.Error():
-			conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-				Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.OutOfCapacityReason,
-				Message: err.Error(),
-			})
+			conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.OutOfCapacityReason, clusterv1.ConditionSeverityError, err.Error())
 		default:
-			conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-				Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.LoadBalancerServiceReconciliationFailedReason,
-				Message: err.Error(),
-			})
+			conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.LoadBalancerServiceReconciliationFailedReason, clusterv1.ConditionSeverityError, err.Error())
 		}
 
 		r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeWarning, "FailureReconcileLB", errors.Wrapf(err, "Failed to reconcile LoadBalancer service").Error())
@@ -232,22 +212,12 @@ func (r *AzureStackHCILoadBalancerReconciler) reconcileNormal(lbs *scope.LoadBal
 		err := r.reconcileLoadBalancerServiceStatus(lbs, clusterScope)
 		if err != nil {
 			r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeWarning, "FailureReconcileLBStatus", errors.Wrapf(err, "Failed to reconcile LoadBalancer service status").Error())
-			conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-				Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.LoadBalancerServiceStatusFailedReason,
-				Message: err.Error(),
-			})
+			conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.LoadBalancerServiceStatusFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 			return reconcile.Result{}, err
 		}
 		if lbs.Address() == "" {
 			lbs.Info("LoadBalancer service address is not available yet")
-			conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-				Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.LoadBalancerAddressUnavailableReason,
-				Message: "",
-			})
+			conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.LoadBalancerAddressUnavailableReason, clusterv1.ConditionSeverityInfo, "")
 			return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 20}, nil
 		}
 	}
@@ -261,21 +231,12 @@ func (r *AzureStackHCILoadBalancerReconciler) reconcileNormal(lbs *scope.LoadBal
 		}
 
 		lbs.Info("Waiting for at least one replica to be ready")
-		conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-			Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.LoadBalancerNoReplicasReadyReason,
-			Message: "",
-		})
+		conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.LoadBalancerNoReplicasReadyReason, clusterv1.ConditionSeverityInfo, "")
 		return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 20}, nil
 	}
 
 	if conditions.IsFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition) {
-		conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-			Type:   infrav1.LoadBalancerInfrastructureReadyCondition,
-			Status: metav1.ConditionTrue,
-			Reason: "InfrastructureReady",
-		})
+		conditions.MarkTrue(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition)
 		r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeNormal, "LoadBalancerReady", "AzureStackHCILoadBalancer %s infrastructure is ready", lbs.Name())
 	}
 
@@ -335,33 +296,18 @@ func (r *AzureStackHCILoadBalancerReconciler) reconcileDelete(lbs *scope.LoadBal
 
 	if err := r.reconcileDeleteLoadBalancerService(lbs, clusterScope); err != nil {
 		r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeWarning, "FailureDeleteLoadBalancer", errors.Wrapf(err, "Error deleting AzureStackHCILoadBalancer %s", lbs.Name()).Error())
-		conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-			Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  "DeletionFailed",
-			Message: err.Error(),
-		})
+		conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return reconcile.Result{}, err
 	}
 
 	if err := r.reconcileDeleteVirtualMachines(lbs, clusterScope); err != nil {
 		r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeWarning, "FailureDeleteLoadBalancerMachines", errors.Wrapf(err, "Error deleting machines for AzureStackHCILoadBalancer %s", lbs.Name()).Error())
-		conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-			Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  "DeletionFailed",
-			Message: err.Error(),
-		})
+		conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return reconcile.Result{}, err
 	}
 
 	controllerutil.RemoveFinalizer(lbs.AzureStackHCILoadBalancer, infrav1.AzureStackHCILoadBalancerFinalizer)
-	conditions.Set(lbs.AzureStackHCILoadBalancer, metav1.Condition{
-		Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-		Status:  metav1.ConditionFalse,
-		Reason:  infrav1.LoadBalancerDeletingReason,
-		Message: "",
-	})
+	conditions.MarkFalse(lbs.AzureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition, infrav1.LoadBalancerDeletingReason, clusterv1.ConditionSeverityInfo, "")
 
 	r.Recorder.Eventf(lbs.AzureStackHCILoadBalancer, corev1.EventTypeNormal, "SuccessfulDeleteLoadBalancer", "Successfully deleted AzureStackHCILoadBalancer %s", lbs.Name())
 	return reconcile.Result{}, nil
@@ -406,14 +352,9 @@ func (r *AzureStackHCILoadBalancerReconciler) reconcileStatus(lbs *scope.LoadBal
 	}
 
 	if conditions.IsFalse(lb, infrav1.LoadBalancerReplicasReadyCondition) {
-		cond := conditions.Get(lb, infrav1.LoadBalancerReplicasReadyCondition)
-		if cond != nil && cond.Reason == infrav1.LoadBalancerReplicasFailedReason {
-			conditions.Set(lb, metav1.Condition{
-				Type:    infrav1.LoadBalancerInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  cond.Reason,
-				Message: cond.Message,
-			})
+		if *conditions.GetSeverity(lb, infrav1.LoadBalancerReplicasReadyCondition) == clusterv1.ConditionSeverityError {
+			cond := conditions.Get(lb, infrav1.LoadBalancerReplicasReadyCondition)
+			conditions.MarkFalse(lb, infrav1.LoadBalancerInfrastructureReadyCondition, cond.Reason, cond.Severity, cond.Message)
 		}
 
 		if conditions.GetReason(lb, infrav1.LoadBalancerReplicasReadyCondition) == infrav1.LoadBalancerReplicasUpgradingReason {

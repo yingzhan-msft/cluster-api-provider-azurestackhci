@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta2"
+	infrav1 "github.com/microsoft/cluster-api-provider-azurestackhci/api/v1beta1"
 	azurestackhci "github.com/microsoft/cluster-api-provider-azurestackhci/cloud"
 	"github.com/microsoft/cluster-api-provider-azurestackhci/cloud/scope"
 	"github.com/microsoft/cluster-api-provider-azurestackhci/cloud/telemetry"
@@ -35,7 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -157,29 +157,11 @@ func (r *AzureStackHCIClusterReconciler) reconcileNormal(clusterScope *scope.Clu
 	if err != nil {
 		switch mocerrors.GetErrorCode(err) {
 		case mocerrors.OutOfMemory.Error():
-			notReady := metav1.Condition{
-				Type:    infrav1.NetworkInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.OutOfMemoryReason,
-				Message: err.Error(),
-			}
-			conditions.Set(azureStackHCICluster, notReady)
+			conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, infrav1.OutOfMemoryReason, clusterv1.ConditionSeverityError, err.Error())
 		case mocerrors.OutOfCapacity.Error():
-			outOfCapacityCondition := metav1.Condition{
-				Type:    infrav1.NetworkInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.OutOfCapacityReason,
-				Message: err.Error(),
-			}
-			conditions.Set(azureStackHCICluster, outOfCapacityCondition)
+			conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, infrav1.OutOfCapacityReason, clusterv1.ConditionSeverityError, err.Error())
 		default:
-			generalErrorCondition := metav1.Condition{
-				Type:    infrav1.NetworkInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.ClusterReconciliationFailedReason,
-				Message: err.Error(),
-			}
-			conditions.Set(azureStackHCICluster, generalErrorCondition)
+			conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, infrav1.ClusterReconciliationFailedReason, clusterv1.ConditionSeverityError, err.Error())
 		}
 
 		wrappedErr := errors.Wrap(err, "failed to reconcile cluster services")
@@ -197,30 +179,8 @@ func (r *AzureStackHCIClusterReconciler) reconcileNormal(clusterScope *scope.Clu
 	}
 
 	// No errors, so mark us ready so the Cluster API Cluster Controller can pull it
-	// Initialize Status.Initialization if needed
-	if azureStackHCICluster.Status.Initialization == nil {
-		azureStackHCICluster.Status.Initialization = &infrav1.AzureStackHCIClusterInitializationStatus{}
-	}
-	if azureStackHCICluster.Status.Initialization.Provisioned == nil {
-		trueVal := true
-		azureStackHCICluster.Status.Initialization.Provisioned = &trueVal
-	} else {
-		*azureStackHCICluster.Status.Initialization.Provisioned = true
-	}
-	// Set provider-specific condition
-	readyCondition := metav1.Condition{
-		Type:   infrav1.NetworkInfrastructureReadyCondition,
-		Status: metav1.ConditionTrue,
-		Reason: "InfrastructureReady",
-	}
-	conditions.Set(azureStackHCICluster, readyCondition)
-
-	// Set the standard Ready condition that CAPI expects
-	conditions.Set(azureStackHCICluster, metav1.Condition{
-		Type:   clusterv1.ReadyCondition,
-		Status: metav1.ConditionTrue,
-		Reason: "InfrastructureReady",
-	})
+	azureStackHCICluster.Status.Ready = true
+	conditions.MarkTrue(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition)
 
 	return reconcile.Result{}, nil
 }
@@ -229,12 +189,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileDelete(clusterScope *scope.Clu
 	clusterScope.Info("Reconciling AzureStackHCICluster delete")
 
 	azureStackHCICluster := clusterScope.AzureStackHCICluster
-	deletedCondition := metav1.Condition{
-		Type:   infrav1.NetworkInfrastructureReadyCondition,
-		Status: metav1.ConditionFalse,
-		Reason: "Deleted",
-	}
-	conditions.Set(azureStackHCICluster, deletedCondition)
+	conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, clusterv1.DeletedReason, clusterv1.ConditionSeverityInfo, "")
 
 	// Steps to delete a cluster
 	// 1. Wait for machines in the cluster to be deleted
@@ -245,12 +200,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileDelete(clusterScope *scope.Clu
 	if err != nil {
 		wrappedErr := errors.Wrapf(err, "unable to list AzureStackHCIMachines part of AzureStackHCIClusters %s/%s", clusterScope.AzureStackHCICluster.Namespace, clusterScope.AzureStackHCICluster.Name)
 		r.Recorder.Eventf(azureStackHCICluster, corev1.EventTypeWarning, "FailureListMachinesInCluster", wrappedErr.Error())
-		conditions.Set(azureStackHCICluster, metav1.Condition{
-			Type:    infrav1.NetworkInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  "DeletionFailed",
-			Message: err.Error(),
-		})
+		conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return reconcile.Result{}, wrappedErr
 	}
 
@@ -260,21 +210,12 @@ func (r *AzureStackHCIClusterReconciler) reconcileDelete(clusterScope *scope.Clu
 		if err != nil {
 			wrappedErr := errors.Wrapf(err, "failed to delete orphaned AzureStackHCIMachines part of AzureStackHCIClusters %s/%s", clusterScope.AzureStackHCICluster.Namespace, clusterScope.AzureStackHCICluster.Name)
 			r.Recorder.Eventf(azureStackHCICluster, corev1.EventTypeWarning, "FailureListMachinesInCluster", wrappedErr.Error())
-			conditions.Set(azureStackHCICluster, metav1.Condition{
-				Type:    infrav1.NetworkInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  "DeletionFailed",
-				Message: err.Error(),
-			})
+			conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 			return reconcile.Result{}, wrappedErr
 		}
 
 		clusterScope.Info("Waiting for AzureStackHCIMachines to be deleted", "count", len(azhciMachines))
-		conditions.Set(azureStackHCICluster, metav1.Condition{
-			Type:   infrav1.NetworkInfrastructureReadyCondition,
-			Status: metav1.ConditionFalse,
-			Reason: infrav1.AzureStackHCIMachinesDeletingReason,
-		})
+		conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, infrav1.AzureStackHCIMachinesDeletingReason, clusterv1.ConditionSeverityWarning, "")
 		return reconcile.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
@@ -292,22 +233,14 @@ func (r *AzureStackHCIClusterReconciler) reconcileDelete(clusterScope *scope.Clu
 	// Try to get the AzureStackHCILoadBalancer; if it still exists, requeue
 	if err := r.Client.Get(clusterScope.Context, azureStackHCILoadBalancerName, azureStackHCILoadBalancer); err == nil {
 		clusterScope.Info("Waiting for AzureStackHCILoadBalancer to be deleted", "name", azureStackHCILoadBalancerName.Name)
-		conditions.Set(azureStackHCICluster, metav1.Condition{
-			Type:   infrav1.NetworkInfrastructureReadyCondition,
-			Status: metav1.ConditionFalse,
-			Reason: infrav1.LoadBalancerDeletingReason,
-		})
+		conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, infrav1.LoadBalancerDeletingReason, clusterv1.ConditionSeverityWarning, "")
 		return reconcile.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
 	if err := newAzureStackHCIClusterReconciler(clusterScope).Delete(); err != nil {
 		wrappedErr := errors.Wrapf(err, "error deleting AzureStackHCICluster %s/%s", azureStackHCICluster.Namespace, azureStackHCICluster.Name)
 		r.Recorder.Eventf(azureStackHCICluster, corev1.EventTypeWarning, "FailureClusterDelete", wrappedErr.Error())
-		conditions.Set(azureStackHCICluster, metav1.Condition{
-			Type:    infrav1.NetworkInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  "DeletionFailed",
-			Message: err.Error()})
+		conditions.MarkFalse(azureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return reconcile.Result{}, wrappedErr
 	}
 
@@ -379,9 +312,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileAzureStackHCILoadBalancer(clus
 				UID:        clusterScope.UID(),
 			}))
 
-		if clusterScope.AzureStackHCILoadBalancer().Image != nil {
-			azureStackHCILoadBalancer.Spec.Image = clusterScope.AzureStackHCILoadBalancer().Image.DeepCopy()
-		}
+		clusterScope.AzureStackHCILoadBalancer().Image.DeepCopyInto(&azureStackHCILoadBalancer.Spec.Image)
 		azureStackHCILoadBalancer.Spec.SSHPublicKey = clusterScope.AzureStackHCILoadBalancer().SSHPublicKey
 		azureStackHCILoadBalancer.Spec.VMSize = clusterScope.AzureStackHCILoadBalancer().VMSize
 		azureStackHCILoadBalancer.Spec.Replicas = clusterScope.AzureStackHCILoadBalancer().Replicas
@@ -403,12 +334,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileAzureStackHCILoadBalancer(clus
 	}
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
-			conditions.Set(clusterScope.AzureStackHCICluster, metav1.Condition{
-				Type:    infrav1.NetworkInfrastructureReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.LoadBalancerProvisioningReason,
-				Message: err.Error(),
-			})
+			conditions.MarkFalse(clusterScope.AzureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, infrav1.LoadBalancerProvisioningReason, clusterv1.ConditionSeverityWarning, err.Error())
 			return false, err
 		}
 	}
@@ -416,12 +342,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileAzureStackHCILoadBalancer(clus
 	// Wait for the load balancer to be fully provisioned
 	if conditions.IsFalse(azureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition) {
 		cond := conditions.Get(azureStackHCILoadBalancer, infrav1.LoadBalancerInfrastructureReadyCondition)
-		conditions.Set(clusterScope.AzureStackHCICluster, metav1.Condition{
-			Type:    infrav1.NetworkInfrastructureReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  cond.Reason,
-			Message: cond.Message,
-		})
+		conditions.MarkFalse(clusterScope.AzureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, cond.Reason, cond.Severity, cond.Message)
 		return false, nil
 	}
 
@@ -460,11 +381,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileDeleteAzureStackHCILoadBalance
 		infrav1util.CopyCorrelationID(clusterScope.AzureStackHCICluster, azureStackHCILoadBalancer)
 		if err := r.Client.Update(clusterScope.Context, azureStackHCILoadBalancer); err != nil {
 			if !apierrors.IsNotFound(err) {
-				conditions.Set(clusterScope.AzureStackHCICluster, metav1.Condition{
-					Type:    infrav1.NetworkInfrastructureReadyCondition,
-					Status:  metav1.ConditionFalse,
-					Reason:  "DeletionFailed",
-					Message: err.Error()})
+				conditions.MarkFalse(clusterScope.AzureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 				return errors.Wrapf(err, "Failed to update AzureStackHCILoadBalancer %s", azureStackHCILoadBalancerName)
 			}
 		}
@@ -479,12 +396,7 @@ func (r *AzureStackHCIClusterReconciler) reconcileDeleteAzureStackHCILoadBalance
 			err)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				conditions.Set(clusterScope.AzureStackHCICluster, metav1.Condition{
-					Type:    infrav1.NetworkInfrastructureReadyCondition,
-					Status:  metav1.ConditionFalse,
-					Reason:  "DeletionFailed",
-					Message: err.Error(),
-				})
+				conditions.MarkFalse(clusterScope.AzureStackHCICluster, infrav1.NetworkInfrastructureReadyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 				return errors.Wrapf(err, "Failed to delete AzureStackHCILoadBalancer %s", azureStackHCILoadBalancerName)
 			}
 		}
@@ -500,16 +412,12 @@ func (r *AzureStackHCIClusterReconciler) reconcilePhase(clusterScope *scope.Clus
 		azureStackHCICluster.Status.SetTypedPhase(infrav1.AzureStackHCIClusterPhasePending)
 	}
 
-	if azureStackHCICluster.Status.Initialization != nil && azureStackHCICluster.Status.Initialization.Provisioned != nil {
-		if !*azureStackHCICluster.Status.Initialization.Provisioned {
-			azureStackHCICluster.Status.SetTypedPhase(infrav1.AzureStackHCIClusterPhaseProvisioning)
-		}
-
-		if *azureStackHCICluster.Status.Initialization.Provisioned {
-			azureStackHCICluster.Status.SetTypedPhase(infrav1.AzureStackHCIClusterPhaseProvisioned)
-		}
-	} else {
+	if !azureStackHCICluster.Status.Ready {
 		azureStackHCICluster.Status.SetTypedPhase(infrav1.AzureStackHCIClusterPhaseProvisioning)
+	}
+
+	if azureStackHCICluster.Status.Ready { // && azureStackHCICluster.Spec.ControlPlaneEndpoint.IsValid() {
+		azureStackHCICluster.Status.SetTypedPhase(infrav1.AzureStackHCIClusterPhaseProvisioned)
 	}
 
 	if !azureStackHCICluster.DeletionTimestamp.IsZero() {

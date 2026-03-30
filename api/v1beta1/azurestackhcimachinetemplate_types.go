@@ -27,6 +27,7 @@ type AzureStackHCIMachineTemplateSpec struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:path=azurestackhcimachinetemplates,scope=Namespaced,categories=cluster-api
 
 // AzureStackHCIMachineTemplate is the Schema for the azurestackhcimachinetemplates API
