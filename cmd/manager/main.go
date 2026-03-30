@@ -38,8 +38,8 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-	ipamv1 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	ipamv1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/util/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -63,7 +63,6 @@ func init() {
 	_ = clusterv1.AddToScheme(scheme)
 	_ = infrav1beta1.AddToScheme(scheme)
 	_ = ipamv1.AddToScheme(scheme)
-	_ = infrav1beta2.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
 

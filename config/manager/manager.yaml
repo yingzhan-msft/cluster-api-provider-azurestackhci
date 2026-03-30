@@ -18,7 +18,6 @@ spec:
       containers:
         - args:
             - "--v=6"
-            - "--diagnostics-address=127.0.0.1:8080"
           image: ecpacr.azurecr.io/public/aksarc/caphcontroller:latest
           imagePullPolicy: Always
           name: manager
